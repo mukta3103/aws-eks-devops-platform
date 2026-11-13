@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-status-api
+  namespace: app-prod
+  labels:
+    app: order-status-api
+spec:
+  type: LoadBalancer
+  selector:
+    app: order-status-api
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 8080

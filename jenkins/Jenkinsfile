@@ -1,0 +1,68 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION       = 'ap-south-1'
+        EKS_CLUSTER_NAME = 'eks-cloud-platform'
+        ECR_REPO_NAME    = 'eks-cloud-platform/order-status-api'
+        AWS_ACCOUNT_ID   = credentials('aws-account-id')
+        IMAGE_TAG        = "${BUILD_NUMBER}-${GIT_COMMIT.take(7)}"
+    }
+
+    stages {
+        stage('Checkout Source') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Run Unit Tests') {
+            steps {
+                sh '''
+                    python3 -m venv .venv
+                    . .venv/bin/activate
+                    pip install -r app/requirements.txt
+                    pytest app/tests/
+                    rm -rf .venv
+                '''
+            }
+        }
+
+        stage('Build & Push Docker Image to ECR') {
+            steps {
+                sh '''
+                    ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+                    aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+                    docker build -t "${ECR_URI}:${IMAGE_TAG}" -t "${ECR_URI}:latest" app/
+                    docker push "${ECR_URI}:${IMAGE_TAG}"
+                    docker push "${ECR_URI}:latest"
+                '''
+            }
+        }
+
+        stage('Deploy to Amazon EKS') {
+            steps {
+                sh '''
+                    ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+                    aws eks update-kubeconfig --region "${AWS_REGION}" --name "${EKS_CLUSTER_NAME}"
+                    kubectl apply -f kubernetes/app/namespace.yaml
+                    sed "s|<AWS_ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/eks-cloud-platform/order-status-api:latest|${ECR_URI}:${IMAGE_TAG}|g" kubernetes/app/deployment.yaml | kubectl apply -f -
+                    kubectl apply -f kubernetes/app/service.yaml
+                    kubectl -n app-prod rollout status deployment/order-status-api --timeout=180s
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker image prune -f || true'
+        }
+        success {
+            echo "Deployment succeeded for build ${IMAGE_TAG}"
+        }
+        failure {
+            echo "Pipeline failed at stage for build ${IMAGE_TAG}"
+        }
+    }
+}

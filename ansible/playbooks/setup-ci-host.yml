@@ -1,0 +1,88 @@
+---
+- name: Configure Ubuntu EC2 host for Jenkins, Docker, kubectl, Terraform, and AWS CLI
+  hosts: ci_host
+  become: true
+
+  vars:
+    kubectl_version: "v1.29.4"
+
+  tasks:
+    - name: Update apt package index and install base dependencies
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - unzip
+          - git
+          - fontconfig
+          - openjdk-17-jre
+          - python3-pip
+        state: present
+        update_cache: true
+
+    - name: Add Jenkins GPG key
+      ansible.builtin.get_url:
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+        dest: /usr/share/keyrings/jenkins-keyring.asc
+        mode: "0644"
+
+    - name: Add Jenkins apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/"
+        state: present
+        filename: jenkins
+
+    - name: Install Jenkins and Docker
+      ansible.builtin.apt:
+        name:
+          - jenkins
+          - docker.io
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker and Jenkins services are enabled and running
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - docker
+        - jenkins
+
+    - name: Add ubuntu and jenkins users to docker group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop:
+        - ubuntu
+        - jenkins
+
+    - name: Install kubectl binary
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+
+    - name: Check if AWS CLI v2 is installed
+      ansible.builtin.command: aws --version
+      register: aws_cli_check
+      changed_when: false
+      failed_when: false
+
+    - name: Download and install AWS CLI v2
+      when: aws_cli_check.rc != 0
+      ansible.builtin.shell: |
+        curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+        unzip -qo /tmp/awscliv2.zip -d /tmp
+        /tmp/aws/install
+        rm -rf /tmp/awscliv2.zip /tmp/aws
+      args:
+        executable: /bin/bash
+
+    - name: Print initial Jenkins admin password location
+      ansible.builtin.debug:
+        msg: "Retrieve initial Jenkins password from /var/lib/jenkins/secrets/initialAdminPassword"

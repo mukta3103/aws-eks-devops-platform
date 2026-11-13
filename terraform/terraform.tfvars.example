@@ -1,0 +1,9 @@
+aws_region            = "ap-south-1"
+project_name          = "eks-cloud-platform"
+environment           = "prod"
+eks_version           = "1.29"
+node_instance_type    = "t3.medium"
+node_desired_size     = 2
+jenkins_instance_type = "t3.medium"
+ssh_key_name          = "replace-with-your-ec2-keypair"
+allowed_ssh_cidr      = "YOUR_PUBLIC_IP/32"

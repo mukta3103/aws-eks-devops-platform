@@ -1,0 +1,28 @@
+---
+- name: Deploy Prometheus and Grafana monitoring stack to EKS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    monitoring_dir: "{{ playbook_dir }}/../../kubernetes/monitoring"
+
+  tasks:
+    - name: Apply monitoring namespace
+      ansible.builtin.command: "kubectl apply -f {{ monitoring_dir }}/namespace.yaml"
+      changed_when: true
+
+    - name: Apply Prometheus configuration and deployment
+      ansible.builtin.command: "kubectl apply -f {{ monitoring_dir }}/{{ item }}"
+      loop:
+        - prometheus-config.yaml
+        - prometheus-deployment.yaml
+        - grafana-deployment.yaml
+      changed_when: true
+
+    - name: Wait for Prometheus and Grafana deployments to become available
+      ansible.builtin.command: "kubectl -n monitoring rollout status deployment/{{ item }} --timeout=180s"
+      loop:
+        - prometheus
+        - grafana
+      changed_when: false
